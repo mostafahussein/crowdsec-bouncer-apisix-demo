@@ -1,0 +1,128 @@
+services:
+  apisix:
+    image: apache/apisix:3.9.0-debian
+    container_name: apisix
+    restart: always
+    volumes:
+      - ./apisix_conf/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
+      - ./apisix_conf/config.yaml:/usr/local/apisix/conf/config.yaml
+    environment:
+      - APISIX_STAND_ALONE=true
+    ports:
+      - "127.0.0.1:9080:9080/tcp"
+    networks:
+      apisix:
+        ipv4_address: 172.20.0.2
+      crowdsec:
+        ipv4_address: 172.19.0.4
+    labels:
+      - crowdsec.enable=true
+      - crowdsec.labels.type=nginx
+    depends_on:
+      - crowdsec
+    cap_add:
+      - NET_ADMIN
+
+  api:
+    image: kennethreitz/httpbin
+    container_name: httpbin
+    restart: always
+    networks:
+      apisix:
+        ipv4_address: 172.20.0.3
+
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.6.2
+    container_name: crowdsec
+    restart: always
+    networks:
+      crowdsec:
+        ipv4_address: 172.19.0.2
+    environment:
+      DOCKER_HOST: tcp://socket-proxy:2375
+      COLLECTIONS: "crowdsecurity/nginx"
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      - socket-proxy
+    volumes:
+      - ./crowdsec_conf/acquis.yaml:/etc/crowdsec/acquis.yaml:ro
+      - crowdsec-db:/var/lib/crowdsec/data/
+      - crowdsec-cfg:/etc/crowdsec/
+
+  socket-proxy:
+    image: lscr.io/linuxserver/socket-proxy:latest
+    container_name: socket-proxy
+    restart: always
+    networks:
+      crowdsec:
+        ipv4_address: 172.19.0.3
+    environment:
+      INFO: 1
+      CONTAINERS: 1
+      POST: 0
+      BUILD: 0
+      COMMIT: 0
+      CONFIGS: 0
+      DISTRIBUTION: 0
+      EXEC: 0
+      GRPC: 0
+      IMAGES: 0
+      NETWORKS: 0
+      NODES: 0
+      PLUGINS: 0
+      SERVICES: 0
+      SESSION: 0
+      SWARM: 0
+      SYSTEM: 0
+      TASKS: 0
+      VOLUMES: 0
+    volumes:
+      - '/var/run/docker.sock:/var/run/docker.sock:ro'
+    read_only: true
+    tmpfs:
+      - /run
+
+  nikto:
+    image: heywoodlh/nikto
+    container_name: nikto
+    restart: always
+    entrypoint: tail -f /dev/null
+    networks:
+      intruder:
+        ipv4_address: 198.51.100.2
+    cap_add:
+      - NET_ADMIN
+
+  router:
+    image: hphil/alpine-iproute2
+    container_name: router
+    restart: always
+    privileged: true
+    command: tail -f /dev/null
+    networks:
+      intruder:
+        ipv4_address: 198.51.100.10
+      apisix:
+        ipv4_address: 172.20.0.10
+
+volumes:
+  crowdsec-db:
+  crowdsec-cfg:
+
+networks:
+  apisix:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+  crowdsec:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.19.0.0/24
+  intruder:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 198.51.100.0/24
